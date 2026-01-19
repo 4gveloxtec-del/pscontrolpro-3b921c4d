@@ -78,6 +78,8 @@ serve(async (req) => {
 
     console.log('Admin role verified, parsing request body...');
 
+    const startedAt = Date.now();
+
     // Parse request body with error handling
     let requestBody: any;
     try {
@@ -93,6 +95,15 @@ serve(async (req) => {
 
     const { backup, mode, modules, jobId: receivedJobId } = requestBody;
     jobId = receivedJobId;
+
+    let payloadBytes = 0;
+    try {
+      payloadBytes = new TextEncoder().encode(JSON.stringify(requestBody)).length;
+    } catch {
+      payloadBytes = 0;
+    }
+
+    console.log(`[meta] jobId=${jobId} mode=${mode} modules=${Array.isArray(modules) ? modules.length : 'all'} payloadBytes=${payloadBytes} startedAt=${startedAt}`);
     
     console.log(`=== IMPORT CONFIG ===`);
     console.log(`Admin: ${user.email}, Mode: ${mode}, JobId: ${jobId}`);
