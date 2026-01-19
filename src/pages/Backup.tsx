@@ -303,17 +303,22 @@ export default function Backup() {
       if (error) {
         let message = (error as any)?.message || 'Erro ao restaurar backup';
 
-        // Try to extract JSON/text body returned by the function for a clearer message
+        // Try to extract HTTP status + body returned by the function for a clearer message
         try {
           const response: Response | undefined = (error as any)?.context?.response;
           if (response) {
+            const statusLine = response.status ? `HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ''}` : '';
             const text = await response.text();
+
+            // Prefer JSON body error/message when present
             try {
               const json = JSON.parse(text);
               message = json?.error || json?.message || message;
             } catch {
               if (text) message = text;
             }
+
+            if (statusLine) message = `${statusLine} — ${message}`;
           }
         } catch {
           // ignore
