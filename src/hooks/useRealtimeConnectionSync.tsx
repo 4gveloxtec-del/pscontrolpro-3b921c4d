@@ -13,6 +13,7 @@ interface ConnectionState {
   offline_since?: string | null;
   heartbeat_failures?: number;
   evolution_state?: string;
+  connected_phone?: string;
 }
 
 interface UseRealtimeConnectionSyncOptions {
@@ -77,6 +78,7 @@ export function useRealtimeConnectionSync(options: UseRealtimeConnectionSyncOpti
         offline_since: data.offline_since,
         heartbeat_failures: data.heartbeat_failures,
         evolution_state: data.state,
+        connected_phone: data.connected_phone,
       };
 
       setConnectionState(newState);
@@ -227,6 +229,7 @@ export function useRealtimeConnectionSync(options: UseRealtimeConnectionSyncOpti
             offline_since: newData.offline_since,
             heartbeat_failures: newData.heartbeat_failures,
             evolution_state: newData.last_evolution_state,
+            connected_phone: newData.connected_phone,
           };
 
           setConnectionState(prev => {

@@ -14,13 +14,13 @@ function normalizeApiUrl(url: string): string {
   return cleanUrl;
 }
 
-// Check Evolution API connection status with retry
+// Check Evolution API connection status with retry - returns phone number when connected
 async function checkEvolutionConnection(
   apiUrl: string,
   apiToken: string,
   instanceName: string,
   retries = 2
-): Promise<{ connected: boolean; state?: string; error?: string }> {
+): Promise<{ connected: boolean; state?: string; error?: string; phone?: string }> {
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const baseUrl = normalizeApiUrl(apiUrl);
@@ -49,7 +49,16 @@ async function checkEvolutionConnection(
       const state = result?.instance?.state || result?.state || 'unknown';
       const isConnected = state === 'open';
       
-      return { connected: isConnected, state };
+      // Extract phone number from various possible response formats
+      // Evolution API returns owner as "5511999999999@s.whatsapp.net" or just the number
+      let phone: string | undefined;
+      const ownerJid = result?.instance?.owner || result?.owner || result?.instance?.ownerJid || result?.ownerJid;
+      if (ownerJid) {
+        // Remove @s.whatsapp.net suffix if present
+        phone = ownerJid.replace(/@.*$/, '');
+      }
+      
+      return { connected: isConnected, state, phone };
     } catch (error: any) {
       if (attempt < retries) {
         await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
@@ -304,19 +313,27 @@ serve(async (req) => {
         // Update database if status changed
         const statusChanged = instance.is_connected !== checkResult.connected;
 
+        // Build update object with phone number if available
+        const updateData: Record<string, any> = {
+          is_connected: checkResult.connected,
+          last_heartbeat_at: new Date().toISOString(),
+          last_evolution_state: checkResult.state,
+          heartbeat_failures: checkResult.connected ? 0 : (instance.heartbeat_failures || 0) + 1,
+          offline_since: checkResult.connected 
+            ? null 
+            : (instance.offline_since || new Date().toISOString()),
+          session_valid: checkResult.connected || (instance.heartbeat_failures || 0) < 3,
+          updated_at: new Date().toISOString(),
+        };
+
+        // Update connected phone if we got it from the API
+        if (checkResult.phone) {
+          updateData.connected_phone = checkResult.phone;
+        }
+
         await supabase
           .from('whatsapp_seller_instances')
-          .update({
-            is_connected: checkResult.connected,
-            last_heartbeat_at: new Date().toISOString(),
-            last_evolution_state: checkResult.state,
-            heartbeat_failures: checkResult.connected ? 0 : (instance.heartbeat_failures || 0) + 1,
-            offline_since: checkResult.connected 
-              ? null 
-              : (instance.offline_since || new Date().toISOString()),
-            session_valid: checkResult.connected || (instance.heartbeat_failures || 0) < 3,
-            updated_at: new Date().toISOString(),
-          })
+          .update(updateData)
           .eq('seller_id', seller_id);
 
         // Log if status changed
@@ -330,7 +347,7 @@ serve(async (req) => {
             p_new_state: checkResult.connected ? 'connected' : 'disconnected',
             p_is_connected: checkResult.connected,
             p_error_message: checkResult.error || null,
-            p_metadata: { evolution_state: checkResult.state },
+            p_metadata: { evolution_state: checkResult.state, phone: checkResult.phone },
           });
         }
 
@@ -342,6 +359,7 @@ serve(async (req) => {
             instance_name: instance.instance_name,
             last_heartbeat: new Date().toISOString(),
             session_valid: checkResult.connected || (instance.heartbeat_failures || 0) < 3,
+            connected_phone: checkResult.phone || instance.connected_phone,
           }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
