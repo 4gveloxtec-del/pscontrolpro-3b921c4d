@@ -42,6 +42,7 @@ export function SimplifiedWhatsAppConfig() {
   const [isCreating, setIsCreating] = useState(false);
   const [isLoadingQr, setIsLoadingQr] = useState(false);
   const [isDisconnecting, setIsDisconnecting] = useState(false);
+  const [isRecreating, setIsRecreating] = useState(false);
   const [status, setStatus] = useState<InstanceStatus | null>(null);
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [showCelebration, setShowCelebration] = useState(false);
@@ -316,6 +317,59 @@ export function SimplifiedWhatsAppConfig() {
     }
   };
 
+  // Recreate instance with new auto-generated name
+  const handleRecreateInstance = async () => {
+    if (!confirm('Isso irá desconectar sua instância atual e criar uma nova com nome automático. Você precisará escanear o QR Code novamente. Continuar?')) {
+      return;
+    }
+    
+    setIsRecreating(true);
+    try {
+      // First disconnect
+      await supabase.functions.invoke('configure-seller-instance', {
+        body: { action: 'disconnect' },
+      });
+
+      // Delete current instance record to force new auto-creation
+      if (user?.id) {
+        await supabase
+          .from('whatsapp_seller_instances')
+          .delete()
+          .eq('seller_id', user.id);
+      }
+
+      // Create new instance with auto-generated name
+      const { data, error } = await supabase.functions.invoke('configure-seller-instance', {
+        body: { action: 'auto_create' },
+      });
+
+      if (error) throw error;
+
+      if (data.success) {
+        toast.success(`Nova instância criada: ${data.instance_name}`);
+        await loadStatus();
+        
+        // Auto-get QR code
+        if (data.qrcode) {
+          setQrCode(data.qrcode);
+        } else {
+          const { data: qrData } = await supabase.functions.invoke('configure-seller-instance', {
+            body: { action: 'get_qrcode' },
+          });
+          if (qrData?.qrcode) {
+            setQrCode(qrData.qrcode);
+          }
+        }
+      } else {
+        toast.error(data.error || 'Erro ao criar nova instância');
+      }
+    } catch (err: any) {
+      toast.error('Erro: ' + err.message);
+    } finally {
+      setIsRecreating(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center p-8">
@@ -490,7 +544,7 @@ export function SimplifiedWhatsAppConfig() {
         {/* Success state with disconnect option */}
         {status?.configured && status?.is_connected && (
           <Card className="border-green-500 bg-green-50 dark:bg-green-900/20">
-            <CardContent className="pt-6">
+            <CardContent className="pt-6 space-y-4">
               <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                 <div className="flex items-start gap-3">
                   <CheckCircle2 className="h-5 w-5 text-green-600 mt-0.5" />
@@ -503,6 +557,10 @@ export function SimplifiedWhatsAppConfig() {
                     </p>
                   </div>
                 </div>
+              </div>
+              
+              {/* Action buttons */}
+              <div className="flex flex-wrap gap-2 pt-2 border-t border-green-200 dark:border-green-800">
                 <Button 
                   variant="outline" 
                   size="sm"
@@ -517,7 +575,26 @@ export function SimplifiedWhatsAppConfig() {
                   )}
                   Desconectar
                 </Button>
+                
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={handleRecreateInstance}
+                  disabled={isRecreating}
+                  className="text-amber-600 hover:text-amber-700 hover:bg-amber-50"
+                >
+                  {isRecreating ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                  )}
+                  Recriar Instância
+                </Button>
               </div>
+              
+              <p className="text-xs text-green-700 dark:text-green-400">
+                💡 Use "Recriar Instância" para gerar um novo nome automático e ativar as configurações mais recentes do chatbot
+              </p>
             </CardContent>
           </Card>
         )}

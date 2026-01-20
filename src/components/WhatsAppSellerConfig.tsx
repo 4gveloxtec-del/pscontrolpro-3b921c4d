@@ -69,6 +69,8 @@ export function WhatsAppSellerConfig() {
   const [isCheckingConnection, setIsCheckingConnection] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isRunningAutomation, setIsRunningAutomation] = useState(false);
+  const [isDisconnecting, setIsDisconnecting] = useState(false);
+  const [isRecreating, setIsRecreating] = useState(false);
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [isLoadingQr, setIsLoadingQr] = useState(false);
   const [showCelebration, setShowCelebration] = useState(false);
@@ -441,6 +443,88 @@ export function WhatsAppSellerConfig() {
     }
   };
 
+  // Disconnect WhatsApp instance
+  const handleDisconnect = async () => {
+    if (!confirm('Tem certeza que deseja desconectar? Você precisará escanear o QR Code novamente.')) {
+      return;
+    }
+    
+    setIsDisconnecting(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('configure-seller-instance', {
+        body: { action: 'disconnect' },
+      });
+
+      if (error) throw error;
+
+      if (data.success) {
+        toast.success('WhatsApp desconectado');
+        setFormData(prev => ({ ...prev, is_connected: false }));
+        setQrCode(null);
+        await refetch();
+      } else {
+        toast.error(data.error || 'Erro ao desconectar');
+      }
+    } catch (err: any) {
+      toast.error('Erro: ' + err.message);
+    } finally {
+      setIsDisconnecting(false);
+    }
+  };
+
+  // Recreate instance with new auto-generated name
+  const handleRecreateInstance = async () => {
+    if (!confirm('Isso irá desconectar sua instância atual e criar uma nova com nome automático. Você precisará escanear o QR Code novamente. Continuar?')) {
+      return;
+    }
+    
+    setIsRecreating(true);
+    try {
+      // First disconnect
+      await supabase.functions.invoke('configure-seller-instance', {
+        body: { action: 'disconnect' },
+      });
+
+      // Delete current instance record to force new auto-creation
+      if (instance?.id) {
+        await supabase
+          .from('whatsapp_seller_instances')
+          .delete()
+          .eq('id', instance.id);
+      }
+
+      // Create new instance with auto-generated name
+      const { data, error } = await supabase.functions.invoke('configure-seller-instance', {
+        body: { action: 'auto_create' },
+      });
+
+      if (error) throw error;
+
+      if (data.success) {
+        toast.success(`Nova instância criada: ${data.instance_name}`);
+        await refetch();
+        
+        // Auto-get QR code
+        if (data.qrcode) {
+          setQrCode(data.qrcode);
+        } else {
+          const { data: qrData } = await supabase.functions.invoke('configure-seller-instance', {
+            body: { action: 'get_qrcode' },
+          });
+          if (qrData?.qrcode) {
+            setQrCode(qrData.qrcode);
+          }
+        }
+      } else {
+        toast.error(data.error || 'Erro ao criar nova instância');
+      }
+    } catch (err: any) {
+      toast.error('Erro: ' + err.message);
+    } finally {
+      setIsRecreating(false);
+    }
+  };
+
   if (isLoading || isLoadingConfig) {
     return (
       <div className="flex items-center justify-center p-8">
@@ -448,7 +532,6 @@ export function WhatsAppSellerConfig() {
       </div>
     );
   }
-
   // Show warning if instance is BLOCKED
   if (isBlocked) {
     return (
@@ -859,19 +942,56 @@ export function WhatsAppSellerConfig() {
         </div>
 
         {formData.is_connected && (
-          <Button 
-            className="w-full rounded-xl h-11 mt-2" 
-            variant="outline"
-            onClick={runAutomation} 
-            disabled={isRunningAutomation}
-          >
-            {isRunningAutomation ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <Play className="h-4 w-4 mr-2" />
-            )}
-            Executar Automação Agora
-          </Button>
+          <>
+            <Button 
+              className="w-full rounded-xl h-11 mt-2" 
+              variant="outline"
+              onClick={runAutomation} 
+              disabled={isRunningAutomation}
+            >
+              {isRunningAutomation ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Play className="h-4 w-4 mr-2" />
+              )}
+              Executar Automação Agora
+            </Button>
+
+            {/* Disconnect and Recreate buttons */}
+            <div className="grid grid-cols-2 gap-3 mt-3">
+              <Button 
+                variant="outline"
+                onClick={handleDisconnect} 
+                disabled={isDisconnecting}
+                className="rounded-xl h-11 text-destructive border-destructive/30 hover:bg-destructive/10"
+              >
+                {isDisconnecting ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <PowerOff className="h-4 w-4 mr-2" />
+                )}
+                Desconectar
+              </Button>
+              
+              <Button 
+                variant="outline"
+                onClick={handleRecreateInstance} 
+                disabled={isRecreating}
+                className="rounded-xl h-11 text-warning border-warning/30 hover:bg-warning/10"
+              >
+                {isRecreating ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                )}
+                Recriar Instância
+              </Button>
+            </div>
+            
+            <p className="text-xs text-muted-foreground text-center mt-2">
+              💡 Use "Recriar Instância" para gerar um novo nome automático para o chatbot
+            </p>
+          </>
         )}
       </div>
 
