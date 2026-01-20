@@ -199,6 +199,36 @@ export type Database = {
         }
         Relationships: []
       }
+      admin_chatbot_keywords: {
+        Row: {
+          created_at: string
+          id: string
+          is_active: boolean | null
+          is_exact_match: boolean | null
+          keyword: string
+          response_text: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_active?: boolean | null
+          is_exact_match?: boolean | null
+          keyword: string
+          response_text: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_active?: boolean | null
+          is_exact_match?: boolean | null
+          keyword?: string
+          response_text?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       admin_reseller_message_logs: {
         Row: {
           admin_id: string
