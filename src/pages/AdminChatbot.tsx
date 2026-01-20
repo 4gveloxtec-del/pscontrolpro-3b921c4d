@@ -82,7 +82,8 @@ export default function AdminChatbot() {
     typing_enabled: true,
     typing_duration_min: 2,
     typing_duration_max: 5,
-    response_mode: 'always' as 'always' | '6h' | '24h',
+    response_mode: 'always' as 'always' | '6h' | '12h' | '24h',
+    ignore_invalid: true,
   });
 
   // Fetch admin chatbot settings from app_settings
@@ -92,11 +93,29 @@ export default function AdminChatbot() {
       const { data, error } = await supabase
         .from('app_settings')
         .select('key, value')
-        .in('key', ['admin_chatbot_enabled', 'admin_chatbot_delay_min', 'admin_chatbot_delay_max', 'admin_chatbot_typing_enabled', 'admin_chatbot_typing_min', 'admin_chatbot_typing_max', 'admin_chatbot_response_mode']);
+        .in('key', ['admin_chatbot_enabled', 'admin_chatbot_delay_min', 'admin_chatbot_delay_max', 'admin_chatbot_typing_enabled', 'admin_chatbot_typing_min', 'admin_chatbot_typing_max', 'admin_chatbot_response_mode', 'admin_chatbot_ignore_invalid']);
       if (error) throw error;
       return data || [];
     },
   });
+
+  // Fetch keywords
+  const { data: keywords = [], refetch: refetchKeywords } = useQuery({
+    queryKey: ['admin-chatbot-keywords'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('admin_chatbot_keywords')
+        .select('*')
+        .order('keyword');
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  // Keywords state
+  const [showKeywordDialog, setShowKeywordDialog] = useState(false);
+  const [editingKeyword, setEditingKeyword] = useState<{ id: string; keyword: string; response_text: string; is_active: boolean } | null>(null);
+  const [keywordForm, setKeywordForm] = useState({ keyword: '', response_text: '', is_active: true });
 
   // Parse settings from app_settings
   useEffect(() => {
@@ -111,10 +130,45 @@ export default function AdminChatbot() {
         typing_enabled: settings.admin_chatbot_typing_enabled !== 'false',
         typing_duration_min: parseInt(settings.admin_chatbot_typing_min || '2'),
         typing_duration_max: parseInt(settings.admin_chatbot_typing_max || '5'),
-        response_mode: (settings.admin_chatbot_response_mode as 'always' | '6h' | '24h') || 'always',
+        response_mode: (settings.admin_chatbot_response_mode as 'always' | '6h' | '12h' | '24h') || 'always',
+        ignore_invalid: settings.admin_chatbot_ignore_invalid !== 'false',
       });
     }
   }, [adminSettings]);
+
+  // Keyword CRUD functions
+  const saveKeyword = async () => {
+    if (!keywordForm.keyword || !keywordForm.response_text) return;
+
+    if (editingKeyword) {
+      await supabase
+        .from('admin_chatbot_keywords')
+        .update({ 
+          keyword: keywordForm.keyword, 
+          response_text: keywordForm.response_text, 
+          is_active: keywordForm.is_active 
+        })
+        .eq('id', editingKeyword.id);
+    } else {
+      await supabase
+        .from('admin_chatbot_keywords')
+        .insert({ 
+          keyword: keywordForm.keyword, 
+          response_text: keywordForm.response_text, 
+          is_active: keywordForm.is_active 
+        });
+    }
+
+    setShowKeywordDialog(false);
+    setEditingKeyword(null);
+    setKeywordForm({ keyword: '', response_text: '', is_active: true });
+    refetchKeywords();
+  };
+
+  const deleteKeyword = async (id: string) => {
+    await supabase.from('admin_chatbot_keywords').delete().eq('id', id);
+    refetchKeywords();
+  };
 
   const saveAdminSetting = async (key: string, value: string) => {
     const { error } = await supabase
@@ -232,7 +286,10 @@ export default function AdminChatbot() {
     if (nextNode) {
       setCurrentNodeKey(nextNode.node_key);
     }
-    addBotMessage(message);
+    // Only add bot message if there's a response (silent mode for invalid options)
+    if (message && message.trim() !== '') {
+      addBotMessage(message);
+    }
     
     setInput('');
     inputRef.current?.focus();
@@ -593,7 +650,7 @@ export default function AdminChatbot() {
                   <CardTitle className="text-white text-lg">Ações Rápidas</CardTitle>
                 </CardHeader>
                 <CardContent className="grid grid-cols-2 gap-2">
-                  {['1', '2', '3', '4', '5', '*'].map((option) => (
+                  {['1', '2', '3', '4', '5', '6', '7', '8', '*'].map((option) => (
                     <Button
                       key={option}
                       variant="outline"
@@ -604,7 +661,10 @@ export default function AdminChatbot() {
                         if (nextNode) {
                           setCurrentNodeKey(nextNode.node_key);
                         }
-                        addBotMessage(message);
+                        // Only add bot message if there's a response
+                        if (message && message.trim() !== '') {
+                          addBotMessage(message);
+                        }
                       }}
                     >
                       {option === '*' ? '🏠 Menu' : `${option}️⃣`}
@@ -963,6 +1023,37 @@ export default function AdminChatbot() {
 
                   <div 
                     onClick={() => {
+                      setSettingsForm(prev => ({ ...prev, response_mode: '12h' }));
+                      saveAdminSetting('admin_chatbot_response_mode', '12h');
+                    }}
+                    className={`p-4 rounded-lg border cursor-pointer transition-all ${
+                      settingsForm.response_mode === '12h' 
+                        ? 'bg-orange-600/20 border-orange-500/50' 
+                        : 'bg-slate-700/50 border-slate-600 hover:border-slate-500'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                        settingsForm.response_mode === '12h' ? 'border-orange-500' : 'border-slate-500'
+                      }`}>
+                        {settingsForm.response_mode === '12h' && (
+                          <div className="w-2 h-2 rounded-full bg-orange-500" />
+                        )}
+                      </div>
+                      <div>
+                        <p className="font-medium text-white flex items-center gap-2">
+                          <Clock className="h-4 w-4 text-orange-400" />
+                          A cada 12 horas
+                        </p>
+                        <p className="text-xs text-slate-400 mt-1">
+                          Responde no máximo 2x por dia por contato
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div 
+                    onClick={() => {
                       setSettingsForm(prev => ({ ...prev, response_mode: '24h' }));
                       saveAdminSetting('admin_chatbot_response_mode', '24h');
                     }}
@@ -1006,15 +1097,145 @@ export default function AdminChatbot() {
                   ) : (
                     <>
                       <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
-                      <span>Modo produção - responde 1x a cada {settingsForm.response_mode === '6h' ? '6 horas' : '24 horas'}</span>
+                      <span>Modo produção - responde 1x a cada {settingsForm.response_mode === '6h' ? '6 horas' : settingsForm.response_mode === '12h' ? '12 horas' : '24 horas'}</span>
                     </>
                   )}
                 </div>
               </CardContent>
             </Card>
+
+            {/* Keywords Management */}
+            <Card className="bg-slate-800 border-slate-700 lg:col-span-2">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="text-white flex items-center gap-2">
+                      💬 Respostas por Palavras-Chave
+                    </CardTitle>
+                    <CardDescription className="text-slate-400">
+                      Configure respostas automáticas para palavras específicas (ex: Pix, Boleto)
+                    </CardDescription>
+                  </div>
+                  <Button 
+                    onClick={() => {
+                      setEditingKeyword(null);
+                      setKeywordForm({ keyword: '', response_text: '', is_active: true });
+                      setShowKeywordDialog(true);
+                    }}
+                    className="bg-blue-600 hover:bg-blue-700"
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Nova Palavra-Chave
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {keywords.length === 0 ? (
+                  <div className="text-center py-8 text-slate-400">
+                    <p>Nenhuma palavra-chave configurada</p>
+                    <p className="text-sm mt-1">Adicione palavras como "Pix", "Boleto", "Cancelamento" para respostas automáticas</p>
+                  </div>
+                ) : (
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {keywords.map((kw: any) => (
+                      <div key={kw.id} className={`p-3 rounded-lg border ${kw.is_active ? 'bg-slate-700/50 border-slate-600' : 'bg-slate-800/50 border-slate-700 opacity-50'}`}>
+                        <div className="flex items-center justify-between mb-2">
+                          <Badge variant="outline" className="border-blue-500/50 text-blue-400">
+                            {kw.keyword}
+                          </Badge>
+                          <div className="flex items-center gap-1">
+                            <Switch
+                              checked={kw.is_active}
+                              onCheckedChange={async (checked) => {
+                                await supabase.from('admin_chatbot_keywords').update({ is_active: checked }).eq('id', kw.id);
+                                refetchKeywords();
+                              }}
+                            />
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-slate-400"
+                              onClick={() => {
+                                setEditingKeyword(kw);
+                                setKeywordForm({ keyword: kw.keyword, response_text: kw.response_text, is_active: kw.is_active });
+                                setShowKeywordDialog(true);
+                              }}
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-red-400"
+                              onClick={() => deleteKeyword(kw.id)}
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        </div>
+                        <p className="text-xs text-slate-400 line-clamp-2">{kw.response_text}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Keyword Dialog */}
+      <Dialog open={showKeywordDialog} onOpenChange={setShowKeywordDialog}>
+        <DialogContent className="bg-slate-800 border-slate-700 text-white">
+          <DialogHeader>
+            <DialogTitle>{editingKeyword ? 'Editar Palavra-Chave' : 'Nova Palavra-Chave'}</DialogTitle>
+            <DialogDescription className="text-slate-400">
+              Configure uma resposta automática para quando o cliente digitar esta palavra
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Palavra-Chave</Label>
+              <Input
+                value={keywordForm.keyword}
+                onChange={(e) => setKeywordForm(prev => ({ ...prev, keyword: e.target.value }))}
+                placeholder="Ex: Pix, Boleto, Cancelamento"
+                className="bg-slate-700 border-slate-600"
+              />
+              <p className="text-xs text-slate-500">A palavra que o cliente deve digitar para acionar a resposta</p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Resposta Automática</Label>
+              <Textarea
+                value={keywordForm.response_text}
+                onChange={(e) => setKeywordForm(prev => ({ ...prev, response_text: e.target.value }))}
+                placeholder="Digite a mensagem que será enviada..."
+                className="bg-slate-700 border-slate-600 min-h-[100px]"
+              />
+              <p className="text-xs text-slate-500">Use *texto* para negrito. Digite ***** (asterisco) em negrito para voltar ao menu.</p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Switch
+                checked={keywordForm.is_active}
+                onCheckedChange={(checked) => setKeywordForm(prev => ({ ...prev, is_active: checked }))}
+              />
+              <Label>Ativo</Label>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowKeywordDialog(false)} className="border-slate-600">
+              Cancelar
+            </Button>
+            <Button onClick={saveKeyword} className="bg-blue-600 hover:bg-blue-700">
+              Salvar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Node Dialog */}
       <Dialog open={showNodeDialog} onOpenChange={setShowNodeDialog}>

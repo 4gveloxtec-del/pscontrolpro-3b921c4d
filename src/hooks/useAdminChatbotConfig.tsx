@@ -185,10 +185,10 @@ export function useAdminChatbotConfig() {
       }
     }
 
-    // No valid option found
+    // No valid option found - return null to indicate silence (no response)
     return { 
       nextNode: null, 
-      message: '❌ Opção inválida. Por favor, escolha uma opção válida ou digite * para voltar ao menu.' 
+      message: '' 
     };
   }, [getNodeByKey]);
 

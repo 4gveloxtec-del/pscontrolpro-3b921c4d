@@ -267,6 +267,11 @@ function canRespondAdmin(
     return { canSend: false, reason: "Cooldown 6h ainda ativo" };
   }
 
+  // "12h" mode
+  if (responseMode === "12h" && hoursSinceLastResponse < 12) {
+    return { canSend: false, reason: "Cooldown 12h ainda ativo" };
+  }
+
   // "24h" mode (default)
   if (responseMode === "24h" && hoursSinceLastResponse < 24) {
     return { canSend: false, reason: "Cooldown 24h ainda ativo" };
@@ -325,10 +330,10 @@ function processAdminInput(
     }
   }
 
-  // No valid option found
+  // No valid option found - return empty to indicate silence (ignore invalid input)
   return {
     nextNode: null,
-    message: "❌ Opção inválida. Por favor, escolha uma opção válida ou digite * para voltar ao menu."
+    message: ""
   };
 }
 
@@ -410,16 +415,40 @@ async function processAdminChatbotMessage(
     return { status: "ignored", reason: "No chatbot nodes configured" };
   }
 
-  // Process input
-  const currentNodeKey = contact.current_node_key || "inicial";
-  const result = processAdminInput(currentNodeKey, messageText, nodes as AdminChatbotNode[]);
+  // Check for keyword match first
+  const { data: keywords } = await supabase
+    .from("admin_chatbot_keywords")
+    .select("*")
+    .eq("is_active", true);
 
-  // Prepare response message
-  let responseMessage = result.message;
-  let newNodeKey = currentNodeKey;
+  const normalizedInput = messageText.toLowerCase().trim();
+  const matchedKeyword = keywords?.find((kw: any) => 
+    normalizedInput === kw.keyword.toLowerCase().trim()
+  );
 
-  if (result.nextNode) {
-    newNodeKey = result.nextNode.node_key;
+  let responseMessage = "";
+  let newNodeKey = contact.current_node_key || "inicial";
+
+  if (matchedKeyword) {
+    // Keyword match found - use keyword response
+    responseMessage = matchedKeyword.response_text;
+    console.log("[AdminChatbot] Keyword match:", matchedKeyword.keyword);
+  } else {
+    // Process input through regular menu flow
+    const currentNodeKey = contact.current_node_key || "inicial";
+    const result = processAdminInput(currentNodeKey, messageText, nodes as AdminChatbotNode[]);
+
+    responseMessage = result.message;
+
+    if (result.nextNode) {
+      newNodeKey = result.nextNode.node_key;
+    }
+  }
+
+  // If no valid response (empty message), ignore silently
+  if (!responseMessage || responseMessage.trim() === "") {
+    console.log("[AdminChatbot] No valid response, ignoring message silently");
+    return { status: "ignored", reason: "Invalid option - silent mode" };
   }
 
   // Send typing status if enabled
@@ -453,6 +482,7 @@ async function processAdminChatbotMessage(
       incoming_message: messageText,
       response_sent: responseMessage,
       node_key: newNodeKey,
+      keyword_matched: matchedKeyword?.keyword || null,
     });
   }
 
