@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { Navigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -9,6 +9,8 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
+import { Badge } from '@/components/ui/badge';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Dialog,
   DialogContent,
@@ -38,6 +40,23 @@ interface WhatsAppTemplate {
   type: string;
   message: string;
 }
+
+// Template categories with icons and labels
+const TEMPLATE_CATEGORIES = [
+  { value: 'all', label: 'Todos', icon: '📋' },
+  { value: 'welcome', label: 'Boas-vindas', icon: '👋' },
+  { value: 'billing', label: 'Cobrança/Vencimento', icon: '💰' },
+  { value: 'plans', label: 'Planos', icon: '📦' },
+  { value: 'general', label: 'Avisos', icon: '📢' },
+];
+
+// Plan periods for sub-filtering
+const PLAN_PERIODS = [
+  { value: 'mensal', label: 'Mensal' },
+  { value: 'trimestral', label: 'Trimestral' },
+  { value: 'semestral', label: 'Semestral' },
+  { value: 'anual', label: 'Anual' },
+];
 
 interface Seller {
   id: string;
@@ -116,6 +135,10 @@ export default function Sellers() {
     apiStatus: 'idle',
     apiError: ''
   });
+
+  // Template filter state
+  const [templateCategoryFilter, setTemplateCategoryFilter] = useState<string>('all');
+  const [templatePlanPeriodFilter, setTemplatePlanPeriodFilter] = useState<string>('');
 
   // Create seller form
   const [newSellerEmail, setNewSellerEmail] = useState('');
@@ -242,7 +265,57 @@ export default function Sellers() {
     enabled: !!session?.user?.id,
   });
 
-  // Fetch admin profile for PIX key
+  // Helper function to determine template category
+  const getTemplateCategory = (template: WhatsAppTemplate): string => {
+    const type = (template.type || '').toLowerCase();
+    const name = template.name.toLowerCase();
+    
+    if (type === 'welcome' || name.includes('boas-vindas') || name.includes('bem-vindo')) {
+      return 'welcome';
+    }
+    if (type === 'billing' || type === 'expired' || type.includes('expiring') || 
+        name.includes('cobrança') || name.includes('vencimento') || name.includes('vencido') || name.includes('vencendo')) {
+      return 'billing';
+    }
+    if (type === 'plans' || name.includes('plano') || name.includes('mensal') || 
+        name.includes('trimestral') || name.includes('semestral') || name.includes('anual')) {
+      return 'plans';
+    }
+    return 'general';
+  };
+
+  // Get template plan period if applicable
+  const getTemplatePlanPeriod = (template: WhatsAppTemplate): string | null => {
+    const name = template.name.toLowerCase();
+    if (name.includes('mensal')) return 'mensal';
+    if (name.includes('trimestral')) return 'trimestral';
+    if (name.includes('semestral')) return 'semestral';
+    if (name.includes('anual')) return 'anual';
+    return null;
+  };
+
+  // Filter templates based on category and plan period
+  const filteredSellerTemplates = useMemo(() => {
+    let filtered = sellerTemplates;
+    
+    // Apply category filter
+    if (templateCategoryFilter !== 'all') {
+      filtered = filtered.filter(t => getTemplateCategory(t) === templateCategoryFilter);
+    }
+    
+    // Apply plan period sub-filter (only when 'plans' category is selected)
+    if (templateCategoryFilter === 'plans' && templatePlanPeriodFilter) {
+      filtered = filtered.filter(t => getTemplatePlanPeriod(t) === templatePlanPeriodFilter);
+    }
+    
+    return filtered;
+  }, [sellerTemplates, templateCategoryFilter, templatePlanPeriodFilter]);
+
+  // Get category display info
+  const getCategoryInfo = (category: string) => {
+    const cat = TEMPLATE_CATEGORIES.find(c => c.value === category);
+    return cat || { label: 'Outros', icon: '📄' };
+  };
   const { data: adminProfile } = useQuery({
     queryKey: ['admin-profile', session?.user?.id],
     queryFn: async () => {
@@ -463,6 +536,8 @@ export default function Sellers() {
   };
 
   const handleOpenMessageDialog = (seller: Seller) => {
+    setTemplateCategoryFilter('all');
+    setTemplatePlanPeriodFilter('');
     setMessageDialog({
       open: true,
       seller,
@@ -1220,7 +1295,7 @@ Qualquer dúvida, estou à disposição!`;
         open={messageDialog.open} 
         onOpenChange={(open) => !open && setMessageDialog({ open: false, seller: null, selectedTemplate: '', message: '', sendingApi: false, apiStatus: 'idle', apiError: '' })}
       >
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <MessageCircle className="h-5 w-5 text-success" />
@@ -1231,30 +1306,154 @@ Qualquer dúvida, estou à disposição!`;
             </DialogDescription>
           </DialogHeader>
           
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Selecionar Template</Label>
-              <Select value={messageDialog.selectedTemplate} onValueChange={handleTemplateSelect}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Escolha um template..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {sellerTemplates.map((template) => (
-                    <SelectItem key={template.id} value={template.id}>
-                      {template.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          <div className="space-y-4 overflow-y-auto flex-1">
+            {/* Category Filter Chips */}
+            <div className="space-y-3">
+              <Label className="text-sm font-medium">Filtrar por Categoria</Label>
+              <div className="flex flex-wrap gap-2">
+                {TEMPLATE_CATEGORIES.map((category) => {
+                  const count = category.value === 'all' 
+                    ? sellerTemplates.length 
+                    : sellerTemplates.filter(t => getTemplateCategory(t) === category.value).length;
+                  
+                  return (
+                    <Button
+                      key={category.value}
+                      variant={templateCategoryFilter === category.value ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => {
+                        setTemplateCategoryFilter(category.value);
+                        setTemplatePlanPeriodFilter('');
+                        setMessageDialog(prev => ({ ...prev, selectedTemplate: '', message: '' }));
+                      }}
+                      className={cn(
+                        "gap-1.5 text-xs h-8",
+                        templateCategoryFilter === category.value 
+                          ? "bg-primary text-primary-foreground" 
+                          : "hover:bg-accent"
+                      )}
+                    >
+                      <span>{category.icon}</span>
+                      <span>{category.label}</span>
+                      <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-[10px]">
+                        {count}
+                      </Badge>
+                    </Button>
+                  );
+                })}
+              </div>
             </div>
 
+            {/* Plan Period Sub-filter (only shown when 'plans' is selected) */}
+            {templateCategoryFilter === 'plans' && (
+              <div className="space-y-2 p-3 bg-muted/50 rounded-lg border">
+                <Label className="text-sm font-medium">Período do Plano</Label>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant={templatePlanPeriodFilter === '' ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setTemplatePlanPeriodFilter('')}
+                    className="text-xs h-7"
+                  >
+                    Todos
+                  </Button>
+                  {PLAN_PERIODS.map((period) => {
+                    const count = sellerTemplates.filter(t => 
+                      getTemplateCategory(t) === 'plans' && getTemplatePlanPeriod(t) === period.value
+                    ).length;
+                    
+                    return (
+                      <Button
+                        key={period.value}
+                        variant={templatePlanPeriodFilter === period.value ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setTemplatePlanPeriodFilter(period.value)}
+                        className="text-xs h-7 gap-1"
+                      >
+                        {period.label}
+                        {count > 0 && (
+                          <Badge variant="secondary" className="h-4 px-1 text-[10px]">
+                            {count}
+                          </Badge>
+                        )}
+                      </Button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Template Selection */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>Selecionar Template</Label>
+                <span className="text-xs text-muted-foreground">
+                  {filteredSellerTemplates.length} template(s) disponível(is)
+                </span>
+              </div>
+              
+              {filteredSellerTemplates.length > 0 ? (
+                <ScrollArea className="h-[180px] rounded-md border">
+                  <div className="p-2 space-y-1">
+                    {filteredSellerTemplates.map((template) => {
+                      const categoryInfo = getCategoryInfo(getTemplateCategory(template));
+                      const planPeriod = getTemplatePlanPeriod(template);
+                      const isSelected = messageDialog.selectedTemplate === template.id;
+                      
+                      return (
+                        <div
+                          key={template.id}
+                          onClick={() => handleTemplateSelect(template.id)}
+                          className={cn(
+                            "flex items-center justify-between p-2.5 rounded-md cursor-pointer transition-colors",
+                            isSelected 
+                              ? "bg-primary text-primary-foreground" 
+                              : "hover:bg-accent"
+                          )}
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="text-base shrink-0">{categoryInfo.icon}</span>
+                            <span className="text-sm truncate">{template.name}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <Badge 
+                              variant={isSelected ? "secondary" : "outline"} 
+                              className="text-[10px] h-5"
+                            >
+                              {categoryInfo.label}
+                            </Badge>
+                            {planPeriod && (
+                              <Badge 
+                                variant={isSelected ? "secondary" : "outline"} 
+                                className="text-[10px] h-5"
+                              >
+                                {planPeriod}
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </ScrollArea>
+              ) : (
+                <div className="flex items-center justify-center h-[120px] rounded-md border border-dashed">
+                  <p className="text-sm text-muted-foreground">
+                    Nenhum template encontrado para este filtro
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Message Preview/Edit */}
             <div className="space-y-2">
               <Label>Mensagem</Label>
               <Textarea
                 value={messageDialog.message}
                 onChange={(e) => setMessageDialog(prev => ({ ...prev, message: e.target.value }))}
-                rows={8}
-                placeholder="Selecione um template ou digite sua mensagem..."
+                rows={6}
+                placeholder="Selecione um template acima ou digite sua mensagem..."
+                className="resize-none"
               />
             </div>
 
@@ -1280,7 +1479,7 @@ Qualquer dúvida, estou à disposição!`;
             )}
           </div>
 
-          <DialogFooter className="flex-col sm:flex-row gap-2">
+          <DialogFooter className="flex-col sm:flex-row gap-2 pt-4 border-t">
             <Button variant="outline" onClick={copyMessage} disabled={!messageDialog.message}>
               <Copy className="h-4 w-4 mr-2" />
               Copiar
