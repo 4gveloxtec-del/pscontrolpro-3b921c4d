@@ -2485,6 +2485,7 @@ export type Database = {
           blocked_at: string | null
           blocked_reason: string | null
           configuration_error: string | null
+          connected_phone: string | null
           connection_source: string | null
           created_at: string | null
           heartbeat_failures: number | null
@@ -2514,6 +2515,7 @@ export type Database = {
           blocked_at?: string | null
           blocked_reason?: string | null
           configuration_error?: string | null
+          connected_phone?: string | null
           connection_source?: string | null
           created_at?: string | null
           heartbeat_failures?: number | null
@@ -2543,6 +2545,7 @@ export type Database = {
           blocked_at?: string | null
           blocked_reason?: string | null
           configuration_error?: string | null
+          connected_phone?: string | null
           connection_source?: string | null
           created_at?: string | null
           heartbeat_failures?: number | null

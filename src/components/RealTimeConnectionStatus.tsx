@@ -11,7 +11,8 @@ import {
   Clock,
   CheckCircle2,
   QrCode,
-  Activity
+  Activity,
+  Phone
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -61,9 +62,30 @@ export function RealTimeConnectionStatus({
     offlineDuration,
     instance_name,
     evolution_state,
+    connected_phone,
     syncStatus,
     attemptReconnect,
   } = useRealtimeConnectionSync({ heartbeatInterval });
+
+  // Format phone number for display (e.g., 5511999999999 -> +55 11 99999-9999)
+  const formatPhone = (phone: string | undefined) => {
+    if (!phone) return null;
+    // Remove any non-digit characters
+    const digits = phone.replace(/\D/g, '');
+    if (digits.length === 13) {
+      // Brazilian format with country code: 5511999999999
+      return `+${digits.slice(0, 2)} ${digits.slice(2, 4)} ${digits.slice(4, 9)}-${digits.slice(9)}`;
+    } else if (digits.length === 12) {
+      // Brazilian format without extra digit: 551199999999
+      return `+${digits.slice(0, 2)} ${digits.slice(2, 4)} ${digits.slice(4, 8)}-${digits.slice(8)}`;
+    } else if (digits.length >= 10) {
+      // Generic format
+      return `+${digits.slice(0, 2)} ${digits.slice(2)}`;
+    }
+    return phone;
+  };
+
+  const formattedPhone = formatPhone(connected_phone);
 
   if (!configured) {
     return null;
@@ -129,6 +151,12 @@ export function RealTimeConnectionStatus({
           <TooltipContent>
             <div className="space-y-1">
               <p className="font-medium">{getStateLabel()}</p>
+              {formattedPhone && state === 'connected' && (
+                <p className="text-xs flex items-center gap-1">
+                  <Phone className="h-3 w-3" />
+                  {formattedPhone}
+                </p>
+              )}
               {offlineDuration && state !== 'connected' && (
                 <p className="text-xs">Offline há {offlineDuration}</p>
               )}
@@ -174,7 +202,12 @@ export function RealTimeConnectionStatus({
               </div>
               <div>
                 <p className="font-medium">{getStateLabel()}</p>
-                {instance_name && (
+                {formattedPhone && state === 'connected' ? (
+                  <p className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Phone className="h-3 w-3" />
+                    {formattedPhone}
+                  </p>
+                ) : instance_name && (
                   <p className="text-xs text-muted-foreground">{instance_name}</p>
                 )}
               </div>
@@ -267,7 +300,15 @@ export function RealTimeConnectionStatus({
                 )}
               </div>
               <div>
-                <p className="font-semibold">{getStateLabel()}</p>
+                <div className="flex items-center gap-2">
+                  <p className="font-semibold">{getStateLabel()}</p>
+                  {formattedPhone && state === 'connected' && (
+                    <span className="text-xs font-normal text-muted-foreground flex items-center gap-1 bg-muted px-2 py-0.5 rounded">
+                      <Phone className="h-3 w-3" />
+                      {formattedPhone}
+                    </span>
+                  )}
+                </div>
                 <p className="text-sm text-muted-foreground">
                   {state === 'connected' 
                     ? 'Chatbot funcionando normalmente'
@@ -354,7 +395,15 @@ export function RealTimeConnectionStatus({
             )}
           </div>
           <div>
-            <p className="font-medium">{getStateLabel()}</p>
+            <div className="flex items-center gap-2">
+              <p className="font-medium">{getStateLabel()}</p>
+              {formattedPhone && state === 'connected' && (
+                <span className="text-xs font-normal text-muted-foreground flex items-center gap-1 bg-muted px-2 py-0.5 rounded">
+                  <Phone className="h-3 w-3" />
+                  {formattedPhone}
+                </span>
+              )}
+            </div>
             <p className="text-sm text-muted-foreground">
               {state === 'connected' 
                 ? 'Chatbot funcionando normalmente'
